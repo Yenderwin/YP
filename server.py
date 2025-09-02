@@ -4,9 +4,12 @@ import datetime
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_socketio import SocketIO, emit
+from flask_cors import CORS
+from sqlalchemy import union_all, literal_column
 
 # --- CONFIGURACIÓN ---
 app = Flask(__name__)
+CORS(app) # Habilita CORS para todas las rutas
 
 # --- CONFIGURACIÓN DE LA BASE DE DATOS ---
 # Render proporciona la URL de la base de datos en una variable de entorno.
@@ -64,14 +67,55 @@ def get_inventario():
 
 @app.route('/historial', methods=['GET'])
 def get_historial():
-    entradas = db.session.query(Entrada, Articulo.nombre, Material.unidad_medicion).join(Articulo, Entrada.articulo_id == Articulo.id).outerjoin(Material, Articulo.nombre == Material.nombre).all()
-    salidas = db.session.query(Salida, Articulo.nombre, Material.unidad_medicion).join(Articulo, Salida.articulo_id == Articulo.id).outerjoin(Material, Articulo.nombre == Material.nombre).all()
-    historial = []
-    for entrada, nombre, unidad in entradas:
-        historial.append({'Articulo': nombre, 'Tipo': 'Entrada', 'cantidad': entrada.cantidad, 'Unidad': unidad, 'Ubicacion': entrada.destino, 'Proveedor': entrada.proveedor, 'fecha': entrada.fecha.isoformat()})
-    for salida, nombre, unidad in salidas:
-        historial.append({'Articulo': nombre, 'Tipo': 'Salida', 'cantidad': salida.cantidad, 'Unidad': unidad, 'Ubicacion': salida.destino, 'Proveedor': None, 'fecha': salida.fecha.isoformat()})
-    return jsonify(historial)
+    # --- MEJORA: Paginación ---
+    # El cliente puede pasar 'page' y 'per_page' como parámetros en la URL
+    # ej: /historial?page=1&per_page=50
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 50, type=int)
+    except (ValueError, TypeError):
+        page = 1
+        per_page = 50
+
+    # --- MEJORA: Paginación a nivel de base de datos con UNION ---
+    # Subconsulta para obtener las entradas en un formato común
+    entradas_subquery = db.session.query(
+        Articulo.nombre.label('articulo_nombre'),
+        literal_column("'Entrada'").label('tipo'),
+        Entrada.cantidad,
+        Material.unidad_medicion,
+        Entrada.destino.label('ubicacion'),
+        Entrada.proveedor,
+        Entrada.fecha
+    ).join(Articulo).outerjoin(Material, Articulo.nombre == Material.nombre)
+
+    # Subconsulta para obtener las salidas en el mismo formato común
+    salidas_subquery = db.session.query(
+        Articulo.nombre.label('articulo_nombre'),
+        literal_column("'Salida'").label('tipo'),
+        Salida.cantidad,
+        Material.unidad_medicion,
+        Salida.destino.label('ubicacion'),
+        literal_column("NULL").label('proveedor'), # Para que las columnas coincidan
+        Salida.fecha
+    ).join(Articulo).outerjoin(Material, Articulo.nombre == Material.nombre)
+
+    # Unir ambas subconsultas con UNION ALL
+    union_query = union_all(entradas_subquery, salidas_subquery).alias('historial')
+
+    # Construir la consulta final, ordenando y paginando a nivel de base de datos
+    paginated_query = db.session.query(union_query).order_by(union_query.c.fecha.desc()).offset((page - 1) * per_page).limit(per_page)
+
+    # Ejecutar la consulta y formatear los resultados
+    results = paginated_query.all()
+    historial_paginado = [
+        {
+            'Articulo': r.articulo_nombre, 'Tipo': r.tipo, 'cantidad': r.cantidad,
+            'Unidad': r.unidad_medicion, 'Ubicacion': r.ubicacion,
+            'Proveedor': r.proveedor, 'fecha': r.fecha.isoformat()
+        } for r in results
+    ]
+    return jsonify(historial_paginado)
 
 @app.route('/registrar_entrada', methods=['POST'])
 def registrar_entrada():
