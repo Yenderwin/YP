@@ -1,11 +1,13 @@
 # c:\Users\ypalomino\Documents\Estudia\Inventario\server.py
+# c:\Users\ypalomino\Documents\Estudia\Inventario\server.py
 import os
 import datetime
+
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
-from sqlalchemy import union_all, literal_column
+from sqlalchemy import union_all, literal_column, func
 
 # --- CONFIGURACIÓN ---
 app = Flask(__name__)
@@ -60,6 +62,11 @@ def notificar_actualizacion():
     socketio.emit('actualizacion_servidor', {'data': 'updated'})
 
 # --- RUTAS DE LA API (ENDPOINTS) ---
+@app.route('/health')
+def health_check():
+    """Simple endpoint para que los servicios de monitoreo verifiquen que la app está viva."""
+    return jsonify({"status": "ok"})
+
 @app.route('/inventario', methods=['GET'])
 def get_inventario():
     articulos = db.session.query(Articulo, Material.unidad_medicion).outerjoin(Material, Articulo.nombre == Material.nombre).all()
@@ -116,6 +123,40 @@ def get_historial():
         } for r in results
     ]
     return jsonify(historial_paginado)
+
+@app.route('/materiales', methods=['GET'])
+def get_materiales():
+    """Devuelve una lista de todos los materiales registrados."""
+    try:
+        materiales = Material.query.order_by(Material.nombre).all()
+        return jsonify([{'nombre': m.nombre, 'unidad_medicion': m.unidad_medicion, 'imagen_path': m.imagen_path} for m in materiales])
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'Error de base de datos al obtener materiales: {e}'}), 500
+
+@app.route('/materiales', methods=['POST'])
+def crear_material():
+    """Crea un nuevo material."""
+    data = request.get_json()
+    if not data or not data.get('nombre'):
+        return jsonify({'status': 'error', 'message': 'El nombre del material es obligatorio.'}), 400
+
+    nombre = data['nombre'].strip().upper()
+    unidad = (data.get('unidad_medicion') or '').strip().upper()
+
+    # Verificar si ya existe
+    if Material.query.filter_by(nombre=nombre).first():
+        return jsonify({'status': 'error', 'message': f'El material "{nombre}" ya existe.'}), 409 # 409 Conflict
+
+    nuevo_material = Material(nombre=nombre, unidad_medicion=unidad)
+    
+    try:
+        db.session.add(nuevo_material)
+        db.session.commit()
+        notificar_actualizacion() # Notifica a los clientes para que recarguen la lista de materiales
+        return jsonify({'status': 'success', 'message': f'Material "{nombre}" creado.'}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': f'Error de base de datos al crear material: {e}'}), 500
 
 @app.route('/registrar_entrada', methods=['POST'])
 def registrar_entrada():

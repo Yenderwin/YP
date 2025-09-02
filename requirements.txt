@@ -3,3 +3,4 @@ Flask-SQLAlchemy
 Flask-SocketIO
 gunicorn
 psycopg2-binary
+Flask-Cors
