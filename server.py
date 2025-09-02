@@ -95,11 +95,17 @@ def registrar_entrada():
     if not articulo:
         articulo = Articulo(nombre=nombre_articulo, cantidad=0, proveedor=proveedor)
         db.session.add(articulo)
-    articulo.cantidad += cantidad
-    nueva_entrada = Entrada(articulo=articulo, cantidad=cantidad, proveedor=proveedor, destino=destino, fecha=datetime.datetime.utcnow())
-    db.session.add(nueva_entrada)
-    db.session.commit()
-    notificar_actualizacion()
+    
+    try:
+        articulo.cantidad += cantidad
+        nueva_entrada = Entrada(articulo=articulo, cantidad=cantidad, proveedor=proveedor, destino=destino, fecha=datetime.datetime.utcnow())
+        db.session.add(nueva_entrada)
+        db.session.commit()
+        notificar_actualizacion()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': f'Error de base de datos: {e}'}), 500
+
     return jsonify({'status': 'success'}), 201
 
 @app.route('/registrar_salida', methods=['POST'])
@@ -122,11 +128,17 @@ def registrar_salida():
     articulo = Articulo.query.filter_by(nombre=nombre_articulo).first()
     if not articulo or articulo.cantidad < cantidad:
         return jsonify({'status': 'error', 'message': 'Stock insuficiente o artículo no existe'}), 400
-    articulo.cantidad -= cantidad
-    nueva_salida = Salida(articulo=articulo, cantidad=cantidad, destino=destino, fecha=datetime.datetime.utcnow())
-    db.session.add(nueva_salida)
-    db.session.commit()
-    notificar_actualizacion()
+    
+    try:
+        articulo.cantidad -= cantidad
+        nueva_salida = Salida(articulo=articulo, cantidad=cantidad, destino=destino, fecha=datetime.datetime.utcnow())
+        db.session.add(nueva_salida)
+        db.session.commit()
+        notificar_actualizacion()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': f'Error de base de datos: {e}'}), 500
+
     return jsonify({'status': 'success'}), 201
 
 # --- EVENTOS DE WEBSOCKET ---
