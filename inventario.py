@@ -216,7 +216,7 @@ class InventarioApp:
 
         # --- CONFIGURACIÓN CLIENTE-SERVIDOR ---
         # Apunta a nuestro servidor en la nube, que está siempre activo.
-        self.server_url = "https://tu-servidor.onrender.com" # <-- ¡Pega tu URL de Render aquí!
+        self.server_url = "https://inventario-server-zlvy.onrender.com"
         self.sio = socketio.Client()
         self.setup_socketio_handlers()
 

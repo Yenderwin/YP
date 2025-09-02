@@ -158,6 +158,61 @@ def crear_material():
         db.session.rollback()
         return jsonify({'status': 'error', 'message': f'Error de base de datos al crear material: {e}'}), 500
 
+@app.route('/materiales/<int:material_id>', methods=['PUT'])
+def actualizar_material(material_id):
+    """Actualiza un material existente."""
+    material = Material.query.get(material_id)
+    if not material:
+        return jsonify({'status': 'error', 'message': 'Material no encontrado.'}), 404
+
+    data = request.get_json()
+    if not data:
+        return jsonify({'status': 'error', 'message': 'No se proporcionaron datos.'}), 400
+
+    nuevo_nombre = data.get('nombre', material.nombre).strip().upper()
+    nueva_unidad = data.get('unidad_medicion', material.unidad_medicion).strip().upper()
+
+    # Verificar si el nuevo nombre entra en conflicto con otro material
+    conflicto = Material.query.filter(Material.id != material_id, Material.nombre == nuevo_nombre).first()
+    if conflicto:
+        return jsonify({'status': 'error', 'message': f'El nombre "{nuevo_nombre}" ya está en uso.'}), 409
+
+    material.nombre = nuevo_nombre
+    material.unidad_medicion = nueva_unidad
+
+    try:
+        db.session.commit()
+        notificar_actualizacion()
+        return jsonify({'status': 'success', 'message': 'Material actualizado.'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': f'Error de base de datos al actualizar material: {e}'}), 500
+
+@app.route('/materiales/<int:material_id>', methods=['DELETE'])
+def eliminar_material(material_id):
+    """Elimina un material."""
+    material = Material.query.get(material_id)
+    if not material:
+        return jsonify({'status': 'error', 'message': 'Material no encontrado.'}), 404
+
+    # Consideración: ¿Qué pasa si este material está en uso por un artículo?
+    # Por simplicidad, lo eliminamos. En una app más compleja, se podría prevenir la eliminación.
+    # Opcionalmente, se podría buscar si algún artículo usa este nombre y actuar en consecuencia.
+
+    try:
+        db.session.delete(material)
+        db.session.commit()
+        notificar_actualizacion()
+        return jsonify({'status': 'success', 'message': 'Material eliminado.'})
+    except Exception as e:
+        db.session.rollback()
+        # Esto puede ocurrir si hay una restricción de clave externa (foreign key)
+        # que impide eliminar un material que está en uso.
+        return jsonify({
+            'status': 'error',
+            'message': f'Error de base de datos: Es posible que el material esté en uso y no se pueda eliminar. ({e})'
+        }), 500
+
 @app.route('/registrar_entrada', methods=['POST'])
 def registrar_entrada():
     data = request.get_json()
